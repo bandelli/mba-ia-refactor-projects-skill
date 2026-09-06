@@ -1,14 +1,36 @@
 const express = require('express');
-const AppManager = require('./AppManager');
-const { config } = require('./utils');
 
-const app = express();
-app.use(express.json());
+const config = require('./config');
+const { createConnection, initSchema, seedData } = require('./database/db');
+const { hashPassword } = require('./utils/crypto');
+const errorHandler = require('./middlewares/errorHandler');
+const checkoutRoutes = require('./routes/checkoutRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const userRoutes = require('./routes/userRoutes');
 
-const manager = new AppManager();
-manager.initDb();
-manager.setupRoutes(app);
+async function start() {
+  const app = express();
+  app.use(express.json());
 
-app.listen(config.port, () => {
-    console.log(`Frankenstein LMS rodando na porta ${config.port}...`);
+  const db = createConnection();
+  await initSchema(db);
+  const seedPasswordHash = await hashPassword('123');
+  await seedData(db, seedPasswordHash);
+
+  app.locals.db = db;
+
+  app.use('/api', checkoutRoutes);
+  app.use('/api', adminRoutes);
+  app.use('/api', userRoutes);
+
+  app.use(errorHandler);
+
+  app.listen(config.port, () => {
+    console.log(`API de cursos rodando na porta ${config.port}...`);
+  });
+}
+
+start().catch((err) => {
+  console.error('Falha ao iniciar aplicação', err);
+  process.exit(1);
 });
