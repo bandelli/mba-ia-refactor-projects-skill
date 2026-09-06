@@ -219,6 +219,18 @@ Em cada um dos 3 projetos, ao final da Fase 2, a execução parou e apresentou o
 | ecommerce-api-legacy | Confirmar Fase 3 após 8 findings (2 CRITICAL, 2 HIGH, 2 MEDIUM, 2 LOW) | "Sim, prosseguir" |
 | task-manager-api | Confirmar Fase 3 após 8 findings (2 CRITICAL, 2 HIGH, 2 MEDIUM, 2 LOW) | "Sim, prosseguir" |
 
+### Teste ao vivo da skill via `claude "/refactor-arch"`
+
+Além da execução guiada (a construtora da skill seguindo manualmente as 3 fases para produzir os relatórios e o código refatorado acima), a skill foi testada de forma **independente e autônoma**: recriou-se uma cópia temporária do `code-smells-project` no estado original (a partir do commit inicial do repositório), fora do repositório de entrega, e o comando real `claude "/refactor-arch"` foi invocado nela, em processo separado, sem nenhuma instrução adicional.
+
+Resultado, sem qualquer intervenção além do prompt `/refactor-arch` e, depois, a confirmação da Fase 3:
+
+- **Fase 1 + 2**: detectou Python/Flask 3.1.1, 4 arquivos, ~780 linhas — igual ao real. Encontrou **14 findings** (mais que os 8 documentados manualmente, incluindo um bypass de login via SQL Injection não listado na análise manual). Criou **somente** o relatório de auditoria (confirmado via `git status` na pasta de teste) e parou sozinha, imprimindo a linha exata `Phase 2 complete. Proceed with refactoring (Phase 3)? [y/n]`, sem tocar em nenhum outro arquivo.
+- **Fase 3** (após confirmação): reestruturou em MVC (`config/`, `models/`, `controllers/`, `routes/`, `middlewares/`), endereçou os 14 findings e validou com **25/25 endpoints PASS, 0 respostas 5xx** — inclusive se autocorrigindo ao notar que o error handler genérico estava convertendo 404/405 nativos do Flask em 500. Não rodou `git commit` sozinha, apenas sugeriu a mensagem (sem trailer de IA).
+- Validação independente (fora do relato da própria skill): subiu-se a aplicação gerada e confirmou-se manualmente que `/health` não vaza mais segredo, `/admin/query` retorna 404 (removido), `/admin/reset-db` exige `X-Admin-Token`, o login usa hash de senha real, e uma tentativa de SQL Injection no login falha corretamente.
+
+Esse teste é o que dá confiança de que a skill funciona como comando real invocável — não só como uma sequência de passos que a autora seguiu manualmente ao construí-la.
+
 ### Validação pós-refatoração (aplicações rodando)
 
 **code-smells-project** (`main.py`, porta local de teste 5057):
