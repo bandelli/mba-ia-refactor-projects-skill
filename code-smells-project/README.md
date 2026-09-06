@@ -11,7 +11,7 @@ src/
 ├── database.py           # factory de conexão + schema + seed
 ├── models/                # acesso a dados por domínio
 ├── controllers/           # regra de negócio por domínio
-├── views/routes.py        # registro de rotas
+├── routes/                # Blueprints por domínio (registro de rotas)
 └── middlewares/           # error handler central + guard de auth admin
 main.py                   # entry point
 ```
