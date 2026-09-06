@@ -38,7 +38,7 @@ Regras de camada agnósticas de tecnologia, mais o mapeamento concreto para os d
 1. **Um arquivo de Model por domínio de negócio** identificado na Fase 1 (ex.: produto, usuário, pedido → 3 arquivos de model, não 1).
 2. **Toda regra de negócio que hoje vive dentro de uma rota ou de um Model vira Controller** — Model fica só com acesso a dados e validações de campo; Controller decide o que fazer com esse dado.
 3. **Toda leitura de segredo/config hardcoded migra para `config/`**, lendo de variável de ambiente, com um `.env.example` documentando as chaves esperadas (valores placeholder, nunca o valor real antigo).
-4. **Endpoints administrativos/sensíveis identificados no catálogo (#3) recebem um guard de autenticação explícito** na camada de rota, antes de chamar o controller.
+4. **Endpoints administrativos/sensíveis identificados no catálogo (#3) recebem um guard de autenticação explícito** na camada de rota, antes de chamar o controller. Convenção do header (para manter consistência entre projetos e ecossistemas): `X-Admin-Token` comparado contra um valor de config vindo de env — não usar `Authorization: Bearer` para esse guard simples de admin (reservar `Authorization: Bearer` para autenticação de usuário via JWT real, quando esse for o padrão adotado no projeto, como em P8).
 5. **Um endpoint cuja única função é executar código arbitrário vindo da requisição (ex.: `/admin/query` executando SQL livre) é removido**, não adaptado — documentar essa decisão no relatório final, não é uma regressão da refatoração.
 6. **Um único middleware de erro por aplicação**, registrado no entry point, substituindo todo `try/except`/`try/catch` genérico espalhado pelos handlers antigos.
 
