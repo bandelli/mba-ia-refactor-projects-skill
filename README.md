@@ -143,12 +143,158 @@ Levantamento feito por leitura direta do código dos 3 projetos, antes da constr
 
 ## B. Construção da Skill
 
-_A preencher após a Fase F2 do handoff de execução (`.doc/HANDOFF.md`): decisões de design da skill `refactor-arch`, anti-patterns incluídos e por quê, como a skill garante agnosticismo de tecnologia, e desafios encontrados na construção._
+A skill `refactor-arch` foi criada uma única vez dentro de `code-smells-project/.claude/skills/refactor-arch/` e depois copiada, sem nenhuma alteração, para `ecommerce-api-legacy/` e `task-manager-api/`. Ela segue exatamente o formato de Custom Skill do Claude Code: um `SKILL.md` curto que orquestra 3 fases (Análise → Auditoria → Refatoração) e 5 arquivos de referência em `references/` que concentram todo o conhecimento de domínio, para o `SKILL.md` nunca precisar duplicar conteúdo.
+
+**Decisões de design:**
+
+- **Nenhuma heurística é amarrada a uma linguagem específica.** `project-analysis-heuristics.md` detecta linguagem/framework/banco a partir de uma tabela de "arquivo-sinal → ecossistema" (`requirements.txt` → Python, `package.json` → Node.js, etc.), com um ramo explícito para "desconhecido". Foi assim que a mesma skill detectou corretamente Flask nos dois projetos Python e Express no projeto Node, sem nenhum código condicional por projeto.
+- **O catálogo de anti-patterns (16 itens) descreve sinais de detecção estruturais**, não sintáticos — por exemplo, N+1 é descrito como "uma chamada de banco dentro do corpo de um laço que itera sobre uma coleção já buscada", com um exemplo em Python (ORM) e um em Node.js (callback). Isso permitiu que o mesmo catálogo encontrasse o problema tanto no `SQLAlchemy` do `task-manager-api` quanto nos callbacks aninhados do `AppManager.js` do `ecommerce-api-legacy`.
+- **Anti-patterns incluídos**: cobrem exatamente os 3 pilares pedidos pelo desafio — segurança (credenciais hardcoded, SQL Injection, endpoint sem auth, hashing falso, token falso), arquitetura/SOLID (God Class/Module, estado global mutável, ausência de DI) e qualidade/performance (N+1, duplicação de lógica, exception handling genérico, ausência de paginação, logging ad-hoc, delete sem cascade, magic numbers). O item de **API/prática deprecated** (`debug=True` fixo, MD5 para senha) foi incluído como exigido pelo enunciado.
+- **O playbook de refatoração (14 padrões) tem exemplo antes/depois em Python e Node.js lado a lado** para cada padrão aplicável aos dois ecossistemas — isso é o que tornou a tradução do catálogo genérico em código real, nos 3 projetos, uma aplicação direta do playbook em vez de uma reinterpretação ad hoc por projeto.
+- **O gate humano da Fase 2 foi tratado como regra de execução, não como detalhe do prompt.** O `SKILL.md` proíbe textualmente qualquer chamada de ferramenta de escrita antes de uma confirmação explícita do usuário, mas a garantia real veio de fora da skill: em cada uma das 3 execuções, a sessão parou de fato e perguntou à responsável pela revisão antes de tocar em qualquer arquivo (ver evidência na seção C).
+
+**Como a agnosticismo de tecnologia foi validado**: a mesma pasta `.claude/skills/refactor-arch/` (idêntica, verificada por `diff -r`) foi copiada sem edição para os 3 projetos, e as 3 execuções encontraram corretamente a stack, geraram ≥8 findings cada e refatoraram para MVC — a prova de agnosticismo não é uma alegação, é o fato de a mesma pasta ter funcionado nas 3 vezes sem qualquer ajuste.
+
+**Desafios encontrados:**
+
+- O ambiente de validação local não tinha suporte a `hashlib.scrypt` (dependência padrão do `werkzeug.security.generate_password_hash` em versões recentes), quebrando o boot do `code-smells-project` na primeira tentativa. Resolvido especificando explicitamente `method="pbkdf2:sha256"` — mais portátil e ainda uma escolha de hashing segura.
+- A porta padrão 5000 estava ocupada pelo AirPlay Receiver do macOS durante a validação local — contornado usando uma variável de ambiente `PORT` (adicionada à config dos 3 projetos) em vez de alterar o comportamento padrão da aplicação.
+- No `ecommerce-api-legacy`, `bcrypt` (nativo) exigiria compilação C durante a instalação; optou-se por `bcryptjs` (implementação pura em JavaScript, sem dependência de build), que resolve o mesmo anti-pattern (#5) sem risco de falha de instalação em ambientes diferentes.
+- Corrigir a paginação ausente no `task-manager-api` (finding LOW) muda o formato de resposta de `GET /tasks` e `GET /users` (de lista crua para `{"items": [...], "page", ...}`) — uma mudança de contrato intencional, decorrente diretamente da recomendação do catálogo, documentada no README do projeto para não ser confundida com uma regressão.
 
 ## C. Resultados
 
-_A preencher após a execução da skill nos 3 projetos (Fases F3, F5, F6 do handoff): resumo dos relatórios de auditoria (`reports/audit-project-{1,2,3}.md`), comparação antes/depois, checklist de validação do PRD preenchido, e evidência dos 3 gates humanos de confirmação (pergunta feita à revisora + resposta literal) exigidos antes de cada Fase 3._
+### Resumo dos relatórios de auditoria
+
+| Projeto | Stack | Findings | CRITICAL | HIGH | MEDIUM | LOW |
+|---|---|---|---|---|---|---|
+| [`reports/audit-project-1.md`](reports/audit-project-1.md) — code-smells-project | Python/Flask | 8 | 3 | 1 | 2 | 2 |
+| [`reports/audit-project-2.md`](reports/audit-project-2.md) — ecommerce-api-legacy | Node.js/Express | 8 | 2 | 2 | 2 | 2 |
+| [`reports/audit-project-3.md`](reports/audit-project-3.md) — task-manager-api | Python/Flask + SQLAlchemy | 8 | 2 | 2 | 2 | 2 |
+
+Todos os 3 projetos superaram o mínimo de 5 findings exigido pelo desafio, com folga, e todos têm pelo menos 1 CRITICAL ou HIGH entre os achados (na prática, todos têm ≥2).
+
+### Comparação antes/depois
+
+| Projeto | Antes | Depois |
+|---|---|---|
+| code-smells-project | 4 arquivos monolíticos, SQL concatenado, `/admin/query` executando SQL livre sem auth, `secret_key` vazada no health check, senha em texto plano | `src/{config,models,controllers,views,middlewares}/`, queries parametrizadas, `/admin/query` removido, `/admin/reset-db` com guard de token, health check sem vazamento, senha hasheada (`pbkdf2:sha256`), N+1 de pedidos resolvido com 1 JOIN |
+| ecommerce-api-legacy | `AppManager.js` (God Class, 141 linhas) com pirâmide de callbacks, segredos hardcoded, hash de senha fake, delete sem cascade | `src/{config,models,controllers,routes,middlewares,services,utils}/`, `async/await` em vez de callbacks aninhados, segredos via `.env`, `bcryptjs` real, relatório financeiro sem N+1 (4 queries fixas), delete com cascade explícito |
+| task-manager-api | Rotas com regra de negócio embutida, MD5 para senha, token de login falso, overdue duplicado 3x, `except:` genérico | `controllers/` novo absorvendo a lógica das rotas, hashing real (`pbkdf2:sha256`), JWT real e assinado (`pyjwt`), `Task.is_overdue()` reaproveitado nos 3 pontos, error handler central, paginação em `/tasks` e `/users` |
+
+### Checklist de Validação (do `PRD.md`)
+
+**Fase 1 — Análise**
+- [x] Linguagem detectada corretamente (Python nos projetos 1 e 3, JavaScript/Node.js no projeto 2)
+- [x] Framework detectado corretamente (Flask 3.1.1, Express ^4.18.2, Flask 3.0.0 + Flask-SQLAlchemy)
+- [x] Domínio da aplicação descrito corretamente (e-commerce, LMS/checkout, task manager)
+- [x] Número de arquivos analisados condiz com a realidade (4, 3 e 15 arquivos, respectivamente)
+
+**Fase 2 — Auditoria**
+- [x] Relatório segue o template definido nos arquivos de referência
+- [x] Cada finding tem arquivo e linhas exatos
+- [x] Findings ordenados por severidade (CRITICAL → LOW)
+- [x] Mínimo de 5 findings identificados (8 em cada projeto)
+- [x] Detecção de APIs deprecated incluída (`debug=True` fixo nos 3 projetos; MD5 no projeto 3)
+- [x] Skill pausa e pede confirmação antes da Fase 3 — evidência abaixo
+
+**Fase 3 — Refatoração**
+- [x] Estrutura de diretórios segue padrão MVC
+- [x] Configuração extraída para módulo de config (sem hardcoded)
+- [x] Models criados/mantidos para abstrair dados
+- [x] Views/Routes separadas para roteamento
+- [x] Controllers concentram o fluxo da aplicação
+- [x] Error handling centralizado
+- [x] Entry point claro
+- [x] Aplicação inicia sem erros (validado nos 3 projetos, ver tabelas PASS/FAIL abaixo)
+- [x] Endpoints originais respondem corretamente (nos 3 projetos)
+
+### Evidência dos 3 gates humanos de confirmação
+
+Em cada um dos 3 projetos, ao final da Fase 2, a execução parou e apresentou o resumo do relatório de auditoria, perguntando explicitamente: *"Relatório completo em `reports/audit-project-N.md`. Posso prosseguir para a Fase 3 (refatoração para MVC) neste projeto?"* — com as opções "Sim, prosseguir" e "Não, quero ajustar o relatório antes". Nenhuma ferramenta de escrita foi usada nos arquivos dos projetos antes dessa resposta.
+
+| Projeto | Pergunta feita | Resposta da revisora |
+|---|---|---|
+| code-smells-project | Confirmar Fase 3 após 8 findings (3 CRITICAL, 1 HIGH, 2 MEDIUM, 2 LOW) | "Sim, prosseguir" |
+| ecommerce-api-legacy | Confirmar Fase 3 após 8 findings (2 CRITICAL, 2 HIGH, 2 MEDIUM, 2 LOW) | "Sim, prosseguir" |
+| task-manager-api | Confirmar Fase 3 após 8 findings (2 CRITICAL, 2 HIGH, 2 MEDIUM, 2 LOW) | "Sim, prosseguir" |
+
+### Validação pós-refatoração (aplicações rodando)
+
+**code-smells-project** (`main.py`, porta local de teste 5057):
+
+| Endpoint | Resultado |
+|---|---|
+| `GET /`, `GET /health` | PASS — sem vazamento de `secret_key`/`debug`/`db_path` |
+| `GET/POST/PUT /produtos*` | PASS |
+| `GET /usuarios`, `POST /login` | PASS — sem campo `senha` na resposta, hash validado |
+| `POST /pedidos`, `GET /pedidos*` | PASS — itens resolvidos com 1 JOIN (sem N+1) |
+| `PUT /pedidos/<id>/status`, `GET /relatorios/vendas` | PASS |
+| `POST /admin/query` | Removido por decisão de segurança — 404 confirmado |
+| `POST /admin/reset-db` | PASS — 401 sem token, 200 com `X-Admin-Token` |
+
+**ecommerce-api-legacy** (`src/app.js`, porta local de teste 3057):
+
+| Endpoint | Resultado |
+|---|---|
+| `POST /api/checkout` | PASS — sucesso, pagamento recusado, bad request e curso inexistente cobertos |
+| `GET /api/admin/financial-report` | PASS — 401 sem token, 200 com token; sem N+1 |
+| `DELETE /api/users/:id` | PASS — cascade confirmado (relatório recalcula receita corretamente após o delete) |
+
+**task-manager-api** (`app.py`, porta local de teste 5058):
+
+| Endpoint | Resultado |
+|---|---|
+| `GET /`, `GET /health` | PASS |
+| `GET/POST/PUT/DELETE /tasks*` | PASS — listagem paginada, `overdue` via `Task.is_overdue()` |
+| `GET/POST/PUT/DELETE /users*` | PASS — listagem paginada, sem campo `password` |
+| `POST /login` | PASS — JWT real assinado retornado; 401 com senha errada |
+| `GET /reports/*`, `/categories*` | PASS |
 
 ## D. Como Executar
 
-_A preencher na Fase F8 do handoff de execução: pré-requisitos, comando para rodar a skill em cada um dos 3 projetos e como validar que a refatoração funcionou._
+### Pré-requisitos
+
+- Python 3.9+ e `pip` (para `code-smells-project` e `task-manager-api`)
+- Node.js 18+ e `npm` (para `ecommerce-api-legacy`)
+- Claude Code instalado, para invocar a skill via `claude "/refactor-arch"`
+
+### Rodar cada projeto (aplicação já refatorada)
+
+```bash
+# Projeto 1 — code-smells-project
+cd code-smells-project
+pip install -r requirements.txt
+cp .env.example .env
+python main.py            # http://localhost:5000
+
+# Projeto 2 — ecommerce-api-legacy
+cd ecommerce-api-legacy
+npm install
+cp .env.example .env
+npm start                 # http://localhost:3000
+
+# Projeto 3 — task-manager-api
+cd task-manager-api
+pip install -r requirements.txt
+cp .env.example .env
+python seed.py            # popula o banco antes do primeiro boot
+python app.py             # http://localhost:5000
+```
+
+### Como validar que a refatoração funcionou
+
+1. Confirmar que a aplicação sobe sem erros no console.
+2. Exercitar os endpoints documentados no `README.md` de cada projeto (ou nos exemplos de `api.http`, no caso do `ecommerce-api-legacy`) e conferir que nenhum retorna `5xx`.
+3. Comparar o comportamento com o relatório de auditoria correspondente em `reports/` — as únicas respostas diferentes do comportamento original são as mudanças intencionais documentadas (remoção do `/admin/query`, guards de token, paginação, JWT real), nunca uma regressão.
+
+### Re-executar a skill (opcional)
+
+Cada projeto já contém sua própria cópia de `.claude/skills/refactor-arch/`. Para reexecutar a auditoria em um projeto (por exemplo, após alterações futuras no código):
+
+```bash
+cd code-smells-project      # ou ecommerce-api-legacy / task-manager-api
+claude "/refactor-arch"
+```
+
+A skill vai parar ao final da Fase 2 e pedir confirmação explícita antes de tocar em qualquer arquivo — responda apenas depois de revisar o relatório gerado.
