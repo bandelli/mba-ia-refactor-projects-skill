@@ -6,9 +6,8 @@ Este documento tem duas partes: o **enunciado original do desafio** (para contex
 
 ---
 
-# Enunciado do Desafio
-
-> Reprodução do enunciado do desafio, para que o repositório seja autossuficiente (o documento original não faz parte do código versionado).
+<details>
+<summary><strong>Enunciado do Desafio</strong> — clique para expandir (reprodução do enunciado original, para o repositório ser autossuficiente)</summary>
 
 Ao longo do curso você aprendeu o que são Skills e como elas permitem que um agente de IA atue como um especialista em tarefas específicas. Agora imagine o seguinte cenário: você herdou 3 projetos legados com problemas de arquitetura, segurança e qualidade de código. Revisar e corrigir tudo manualmente levaria dias.
 
@@ -375,6 +374,8 @@ A skill deve atingir os seguintes mínimos em todos os 3 projetos:
 - Pedir confirmação na Fase 2 é obrigatório — o humano deve revisar o relatório antes de qualquer modificação.
 - Consulte as referências do curso — revise a documentação oficial da ferramenta escolhida e os materiais das aulas.
 
+</details>
+
 ---
 
 # Respostas do Desafio
@@ -545,6 +546,8 @@ A skill `refactor-arch` foi criada uma única vez dentro de `code-smells-project
 
 Todos os 3 projetos superaram o mínimo de 5 findings exigido pelo desafio, com folga, e todos têm pelo menos 1 CRITICAL ou HIGH entre os achados (na prática, todos têm ≥2).
 
+> Mais abaixo, na seção ["Teste ao vivo da skill"](#teste-ao-vivo-da-skill-via-claude-refactor-arch), aparecem números maiores (12 a 14 findings) para os mesmos projetos — não é inconsistência: são de uma segunda rodada de auditoria, independente desta, rodada depois para validar a skill como comando real.
+
 ### Comparação antes/depois
 
 | Projeto | Antes | Depois |
@@ -594,11 +597,23 @@ Em cada um dos 3 projetos, ao final da Fase 2, a execução parou e apresentou o
 
 Além da execução guiada (a construtora da skill seguindo manualmente as 3 fases para produzir os relatórios e o código refatorado documentados acima), a skill foi testada de forma **independente e autônoma nos 3 projetos**: recriou-se uma cópia temporária de cada projeto no estado original (a partir do commit inicial do repositório), fora do repositório de entrega, e o comando real `claude "/refactor-arch"` foi invocado em processo separado em cada uma, sem nenhuma instrução adicional além do prompt e, depois, da confirmação da Fase 3.
 
-| Projeto | Fase 1+2 (autônoma) | Gate humano | Fase 3 (após confirmação) | Validação independente |
-|---|---|---|---|---|
-| code-smells-project | Python/Flask 3.1.1, 4 arquivos, ~780 linhas — correto. **14 findings** (mais que os 8 da análise manual, incluindo um bypass de login via SQL Injection não documentado antes). | Parou sozinha na linha exata `Phase 2 complete. Proceed with refactoring (Phase 3)? [y/n]`, sem tocar em nenhum arquivo além do relatório. | Reestruturou em MVC, endereçou os 14 findings, **25/25 endpoints PASS, 0 respostas 5xx** — e se autocorrigiu ao notar que o error handler genérico convertia 404/405 nativos do Flask em 500. | Subi a aplicação e confirmei manualmente: `/health` sem vazamento, `/admin/query` removido (404), `/admin/reset-db` exige token, SQL Injection no login falha corretamente. |
-| ecommerce-api-legacy | Node.js/Express, correto. **13 findings** (4 CRITICAL, incluindo cartão de cliente vazado em log — um detalhe que eu não tinha documentado). | Parou sozinha, só o relatório criado. | Refatorou em MVC (`models/controllers/routes/middlewares/services`), hash de senha migrado para `scrypt` nativo do Node (sem dependência externa), cache isolado em serviço, **7/7 endpoints PASS, 0 respostas 5xx**. | Subi a aplicação e confirmei: `/api/admin/financial-report` e `DELETE /api/users/:id` exigem `X-Admin-Token` (401 sem, 200 com), checkout funciona. |
-| task-manager-api | Python/Flask + SQLAlchemy, domínio Task Manager corretamente identificado. **12 findings** (3 CRITICAL, 3 HIGH). | Parou sozinha, só o relatório criado. | Reestruturou em MVC (`controllers/` novo), MD5 → `pbkdf2:sha256`, JWT real assinado, `NotificationService` morto removido, N+1 eliminado, **29/29 endpoints PASS, 0 respostas 5xx**. | Subi a aplicação e confirmei: login retorna JWT real assinado, `/reports/summary` e `DELETE` exigem `X-Admin-Token` (401 sem, 200 com). |
+**code-smells-project**
+- Fase 1+2 (autônoma): detectou Python/Flask 3.1.1, 4 arquivos, ~780 linhas — correto. Encontrou **14 findings** (mais que os 8 da análise manual, incluindo um bypass de login via SQL Injection não documentado antes).
+- Gate humano: parou sozinha na linha exata `Phase 2 complete. Proceed with refactoring (Phase 3)? [y/n]`, sem tocar em nenhum arquivo além do relatório.
+- Fase 3 (após confirmação): reestruturou em MVC, endereçou os 14 findings, **25/25 endpoints PASS, 0 respostas 5xx** — e se autocorrigiu ao notar que o error handler genérico convertia 404/405 nativos do Flask em 500.
+- Validação independente: subi a aplicação e confirmei manualmente que `/health` não vaza segredo, `/admin/query` foi removido (404), `/admin/reset-db` exige token, e uma tentativa de SQL Injection no login falha corretamente.
+
+**ecommerce-api-legacy**
+- Fase 1+2 (autônoma): detectou Node.js/Express corretamente. Encontrou **13 findings** (4 CRITICAL, incluindo cartão de cliente vazado em log — um detalhe que eu não tinha documentado na análise manual).
+- Gate humano: parou sozinha, só o relatório criado.
+- Fase 3 (após confirmação): refatorou em MVC (`models/controllers/routes/middlewares/services`), migrou o hash de senha para `scrypt` nativo do Node (sem dependência externa), isolou o cache num serviço, **7/7 endpoints PASS, 0 respostas 5xx**.
+- Validação independente: subi a aplicação e confirmei que `/api/admin/financial-report` e `DELETE /api/users/:id` exigem `X-Admin-Token` (401 sem, 200 com) e que o checkout funciona.
+
+**task-manager-api**
+- Fase 1+2 (autônoma): identificou Python/Flask + SQLAlchemy e o domínio de Task Manager corretamente. Encontrou **12 findings** (3 CRITICAL, 3 HIGH).
+- Gate humano: parou sozinha, só o relatório criado.
+- Fase 3 (após confirmação): reestruturou em MVC (`controllers/` novo), migrou MD5 → `pbkdf2:sha256`, emitiu JWT real assinado, removeu o `NotificationService` morto, eliminou o N+1, **29/29 endpoints PASS, 0 respostas 5xx**.
+- Validação independente: subi a aplicação e confirmei que o login retorna JWT real assinado e que `/reports/summary` e os endpoints de `DELETE` exigem `X-Admin-Token` (401 sem, 200 com).
 
 Em nenhum dos 3 casos a skill rodou `git commit` sozinha — cada execução parou após validar e sugeriu a mensagem de commit (sem trailer de IA), deixando a decisão para o operador, exatamente como especificado no `SKILL.md`.
 
